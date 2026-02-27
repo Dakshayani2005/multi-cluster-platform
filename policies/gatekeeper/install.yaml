@@ -1,0 +1,14 @@
+---
+# Gatekeeper is installed via its Helm chart or upstream manifest.
+# Reference: https://open-policy-agent.github.io/gatekeeper/website/docs/install/
+# Pin version for reproducibility:
+# helm repo add gatekeeper https://open-policy-agent.github.io/gatekeeper/charts
+# helm install gatekeeper gatekeeper/gatekeeper --namespace gatekeeper-system --create-namespace --version 3.16.3
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gatekeeper-system
+  labels:
+    admission.gatekeeper.sh/ignore: "no-self-managing"
+    control-plane: controller-manager

@@ -1,0 +1,214 @@
+version: "3.9"
+
+# =============================================================
+# Multi-Cluster Kubernetes Platform — Local Development Stack
+#
+# Runs a representative subset of platform components locally:
+#   - Sample web-app (the GitOps-deployed microservice)
+#   - Backstage Internal Developer Portal
+#   - Prometheus (single-cluster metrics)
+#   - Grafana (dashboards — connects to Prometheus + Loki + Jaeger)
+#   - Loki (log aggregation)
+#   - Jaeger (distributed tracing)
+#   - PostgreSQL (Backstage backend + app database)
+#
+# Usage:
+#   cp .env.example .env        # fill in values
+#   docker compose up -d        # start everything
+#   docker compose down -v      # stop and clean up
+#
+# Note: Multi-cluster federation and Istio mTLS require real
+# Kubernetes clusters. This compose file provides a functional
+# local approximation for development and demo purposes.
+# =============================================================
+
+networks:
+  platform:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  loki-data:
+  grafana-data:
+
+services:
+
+  # ----------------------------------------------------------
+  # Sample web-app (the microservice deployed via GitOps)
+  # ----------------------------------------------------------
+  web-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: web-app
+    ports:
+      - "8080:8080"
+    networks:
+      - platform
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    labels:
+      app: web-app
+      team: platform
+      environment: local
+
+  # ----------------------------------------------------------
+  # PostgreSQL — Backstage catalog backend + app database
+  # ----------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_DB: backstage
+      POSTGRES_USER: ${POSTGRES_USER:-backstage}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-only}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - platform
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-backstage}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------
+  # Backstage — Internal Developer Portal
+  # ----------------------------------------------------------
+  backstage:
+    image: ghcr.io/backstage/backstage:latest
+    container_name: backstage
+    ports:
+      - "3000:3000"
+      - "7007:7007"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-backstage}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-only}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      AUTH_GITHUB_CLIENT_ID: ${AUTH_GITHUB_CLIENT_ID:-}
+      AUTH_GITHUB_CLIENT_SECRET: ${AUTH_GITHUB_CLIENT_SECRET:-}
+    volumes:
+      - ./backstage/app-config.yaml:/app/app-config.yaml:ro
+    networks:
+      - platform
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7007/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ----------------------------------------------------------
+  # Prometheus — metrics collection
+  # ----------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./local-dev/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - platform
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ----------------------------------------------------------
+  # Loki — log aggregation
+  # ----------------------------------------------------------
+  loki:
+    image: grafana/loki:2.9.4
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./local-dev/loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    networks:
+      - platform
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------
+  # Promtail — log shipper (ships web-app container logs to Loki)
+  # ----------------------------------------------------------
+  promtail:
+    image: grafana/promtail:2.9.4
+    container_name: promtail
+    command: -config.file=/etc/promtail/config.yaml
+    volumes:
+      - ./local-dev/promtail-config.yaml:/etc/promtail/config.yaml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - platform
+    depends_on:
+      - loki
+
+  # ----------------------------------------------------------
+  # Jaeger — distributed tracing
+  # ----------------------------------------------------------
+  jaeger:
+    image: jaegertracing/all-in-one:1.56
+    container_name: jaeger
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+    environment:
+      SPAN_STORAGE_TYPE: memory
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - platform
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:16686/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ----------------------------------------------------------
+  # Grafana — unified dashboards (Prometheus + Loki + Jaeger)
+  # ----------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.3.3
+    container_name: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./local-dev/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - platform
+    depends_on:
+      - prometheus
+      - loki
+      - jaeger
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3

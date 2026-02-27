@@ -1,0 +1,38 @@
+---
+# Cluster API core components namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: capi-system
+  labels:
+    app.kubernetes.io/managed-by: clusterctl
+---
+# ClusterClass for reusable EKS topology
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: ClusterClass
+metadata:
+  name: eks-standard
+  namespace: capi-system
+spec:
+  controlPlane:
+    ref:
+      apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+      kind: AWSManagedControlPlaneTemplate
+      name: eks-standard-control-plane
+      namespace: capi-system
+  workers:
+    machineDeployments:
+      - class: default-worker
+        template:
+          bootstrap:
+            ref:
+              apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+              kind: EKSConfigTemplate
+              name: eks-standard-bootstrap
+              namespace: capi-system
+          infrastructure:
+            ref:
+              apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+              kind: AWSManagedMachinePoolTemplate
+              name: eks-standard-worker-pool
+              namespace: capi-system

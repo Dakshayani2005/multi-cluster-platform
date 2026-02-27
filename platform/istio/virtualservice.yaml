@@ -1,0 +1,74 @@
+---
+# DestinationRule: define subsets for canary and locality-based failover
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: web-app
+  namespace: app
+spec:
+  host: web-service
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+    loadBalancer:
+      simple: LEAST_CONN
+      localityLbSetting:
+        enabled: true
+        failover:
+          - from: us-east-1
+            to: eu-west-1
+        distribute:
+          - from: "us-east-1/*"
+            to:
+              "us-east-1/*": 80
+              "eu-west-1/*": 20
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+    - name: v2
+      labels:
+        version: v2
+---
+# VirtualService: 90/10 canary split with cross-cluster routing
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: web-app
+  namespace: app
+spec:
+  hosts:
+    - web-service
+    - web-app.example.com
+  gateways:
+    - app/web-app-gateway
+    - mesh
+  http:
+    - match:
+        - headers:
+            x-canary:
+              exact: "true"
+      route:
+        - destination:
+            host: web-service
+            subset: v2
+          weight: 100
+    - route:
+        - destination:
+            host: web-service
+            subset: v1
+          weight: 90
+        - destination:
+            host: web-service
+            subset: v2
+          weight: 10
+      retries:
+        attempts: 3
+        perTryTimeout: 5s
+      timeout: 15s

@@ -1,0 +1,50 @@
+---
+# ServiceEntry: expose web-app from eu-west-1 clusters into mesh
+# Allows services in us-east-1 to discover and call web-app running in eu-west-1
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: web-app-eu-west-1
+  namespace: istio-system
+spec:
+  hosts:
+    - web-app.app.global           # global virtual hostname
+  location: MESH_INTERNAL
+  ports:
+    - name: http
+      number: 80
+      protocol: HTTP
+  resolution: DNS
+  addresses:
+    - 240.0.0.1                    # synthetic VIP for cross-cluster routing
+  endpoints:
+    - address: istio-eastwestgateway.istio-system.svc.cluster.local
+      network: network2
+      ports:
+        http: 15443
+      labels:
+        app: web-app
+        cluster: production-cluster
+---
+# ServiceEntry for the database (postgres) accessible cross-cluster
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: postgres-eu-west-1
+  namespace: istio-system
+spec:
+  hosts:
+    - postgres.database.global
+  location: MESH_INTERNAL
+  ports:
+    - name: tcp-postgres
+      number: 5432
+      protocol: TCP
+  resolution: DNS
+  addresses:
+    - 240.0.0.2
+  endpoints:
+    - address: istio-eastwestgateway.istio-system.svc.cluster.local
+      network: network2
+      ports:
+        tcp-postgres: 15443

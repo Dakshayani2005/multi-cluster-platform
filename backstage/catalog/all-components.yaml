@@ -1,0 +1,67 @@
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: multi-cluster-platform
+  title: Multi-Cluster IDP
+  description: Enterprise-grade internal developer platform
+  tags:
+    - platform
+    - kubernetes
+    - multi-cluster
+spec:
+  owner: platform-team
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: web-app
+  title: Web Application
+  description: Sample web application deployed across clusters via GitOps
+  annotations:
+    github.com/project-slug: Dakshayani2005/multi-cluster-platform
+    backstage.io/kubernetes-id: web-app
+    backstage.io/kubernetes-namespace: app
+    argocd/app-name: production-web-app
+    backstage.io/techdocs-ref: dir:.
+  tags:
+    - web
+    - nginx
+    - gitops
+  links:
+    - url: http://web-app.example.com
+      title: Live App
+      icon: web
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  system: multi-cluster-platform
+  dependsOn:
+    - component:postgres
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: postgres
+  title: PostgreSQL Database
+  description: Shared PostgreSQL database for application storage
+  annotations:
+    backstage.io/kubernetes-id: postgres
+    backstage.io/kubernetes-namespace: database
+  tags:
+    - database
+    - postgresql
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  system: multi-cluster-platform
+---
+apiVersion: backstage.io/v1alpha1
+kind: Location
+metadata:
+  name: all-components
+  description: Root catalog location
+spec:
+  targets:
+    - ./catalog-info.yaml

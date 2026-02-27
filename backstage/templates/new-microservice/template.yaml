@@ -1,0 +1,128 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: new-microservice
+  title: New Microservice
+  description: Scaffolds a new microservice with Kubernetes manifests, GitOps config, and CI/CD pipeline
+  tags:
+    - microservice
+    - kubernetes
+    - gitops
+    - recommended
+spec:
+  owner: platform-team
+  type: service
+
+  parameters:
+    - title: Service Details
+      required: [name, description, owner, team]
+      properties:
+        name:
+          title: Service Name
+          type: string
+          description: Unique name for the microservice (lowercase, hyphens only)
+          pattern: '^[a-z][a-z0-9-]{2,30}$'
+          ui:autofocus: true
+        description:
+          title: Description
+          type: string
+          description: Short description of what this service does
+        owner:
+          title: Owner Team
+          type: string
+          description: Team responsible for this service
+          ui:field: OwnerPicker
+          ui:options:
+            allowedKinds: [Group]
+        team:
+          title: Team Namespace
+          type: string
+          description: Kubernetes namespace for this team (e.g. team-alpha)
+          enum: [team-alpha, team-beta, app]
+
+    - title: Infrastructure Options
+      required: [environment, replicas]
+      properties:
+        environment:
+          title: Target Environment
+          type: string
+          enum: [staging, production, both]
+          default: staging
+        replicas:
+          title: Initial Replica Count
+          type: number
+          default: 2
+          minimum: 1
+          maximum: 10
+        port:
+          title: Container Port
+          type: number
+          default: 8080
+        image:
+          title: Container Image
+          type: string
+          default: nginx:1.25-alpine
+          description: Docker image to use (use your own registry path in production)
+
+    - title: Repository Settings
+      required: [repoUrl]
+      properties:
+        repoUrl:
+          title: Repository Location
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts: [github.com]
+            allowedOwners: [Dakshayani2005]
+
+  steps:
+    - id: fetch-base
+      name: Fetch Base Template Files
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          team: ${{ parameters.team }}
+          environment: ${{ parameters.environment }}
+          replicas: ${{ parameters.replicas }}
+          port: ${{ parameters.port }}
+          image: ${{ parameters.image }}
+
+    - id: publish
+      name: Publish to GitHub
+      action: publish:github
+      input:
+        allowedHosts: [github.com]
+        description: ${{ parameters.description }}
+        repoUrl: ${{ parameters.repoUrl }}
+        defaultBranch: main
+        gitCommitMessage: "feat: scaffold ${{ parameters.name }} microservice"
+        topics: [microservice, kubernetes, gitops]
+
+    - id: register
+      name: Register in Backstage Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+    - id: create-argocd-app
+      name: Create ArgoCD Application
+      action: argocd:create-resources
+      input:
+        appName: ${{ parameters.name }}
+        argoInstance: main
+        namespace: ${{ parameters.team }}
+        repoUrl: ${{ steps['publish'].output.remoteUrl }}
+        path: gitops
+
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps['publish'].output.remoteUrl }}
+      - title: Open in Catalog
+        icon: catalog
+        entityRef: ${{ steps['register'].output.entityRef }}

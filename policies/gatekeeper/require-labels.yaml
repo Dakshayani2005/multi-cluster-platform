@@ -1,0 +1,58 @@
+---
+# ConstraintTemplate: require specific labels on all pods
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequiredlabels
+  annotations:
+    description: "Requires specified labels to be present on resources."
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequiredLabels
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            labels:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequiredlabels
+
+        import future.keywords.contains
+        import future.keywords.if
+
+        violation contains msg if {
+          required := input.parameters.labels[_]
+          not input.review.object.metadata.labels[required]
+          msg := sprintf("Resource is missing required label: %v", [required])
+        }
+---
+# Constraint: require app, team, and environment labels on all pods
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredLabels
+metadata:
+  name: require-pod-labels
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    excludedNamespaces:
+      - kube-system
+      - gatekeeper-system
+      - istio-system
+      - argocd
+      - monitoring
+      - observability
+  parameters:
+    labels:
+      - "app"
+      - "team"
+      - "environment"

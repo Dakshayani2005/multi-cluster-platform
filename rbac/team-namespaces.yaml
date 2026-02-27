@@ -1,0 +1,123 @@
+---
+# Namespace for team-alpha (isolated tenant)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-alpha
+  labels:
+    team: alpha
+    environment: production
+    istio-injection: enabled
+---
+# Namespace for team-beta
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-beta
+  labels:
+    team: beta
+    environment: production
+    istio-injection: enabled
+---
+# ResourceQuota: limit team-alpha resource consumption
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: team-alpha-quota
+  namespace: team-alpha
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "20"
+    services: "10"
+    persistentvolumeclaims: "5"
+    secrets: "20"
+    configmaps: "20"
+---
+# ResourceQuota for team-beta
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: team-beta-quota
+  namespace: team-beta
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "20"
+    services: "10"
+    persistentvolumeclaims: "5"
+    secrets: "20"
+    configmaps: "20"
+---
+# Role: team-alpha developers can manage their own workloads
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: team-developer
+  namespace: team-alpha
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/exec", "services", "configmaps", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]  # read-only on secrets
+---
+# RoleBinding: bind team-alpha group to developer role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: team-alpha-developer-binding
+  namespace: team-alpha
+subjects:
+  - kind: Group
+    name: team-alpha-developers  # Managed via SSO / AWS IAM identity mapping
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: team-developer
+  apiGroup: rbac.authorization.k8s.io
+---
+# Role for team-beta
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: team-developer
+  namespace: team-beta
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/exec", "services", "configmaps", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+---
+# RoleBinding for team-beta
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: team-beta-developer-binding
+  namespace: team-beta
+subjects:
+  - kind: Group
+    name: team-beta-developers
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: team-developer
+  apiGroup: rbac.authorization.k8s.io

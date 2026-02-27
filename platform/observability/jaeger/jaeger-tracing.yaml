@@ -1,0 +1,173 @@
+---
+# Jaeger: distributed tracing backend (management cluster)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+        team: platform
+        environment: management
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:1.56
+          args:
+            - --collector.otlp.enabled=true
+          env:
+            - name: SPAN_STORAGE_TYPE
+              value: elasticsearch
+            - name: ES_SERVER_URLS
+              value: http://elasticsearch.observability.svc.cluster.local:9200
+            - name: ES_INDEX_PREFIX
+              value: jaeger
+          ports:
+            - name: http
+              containerPort: 16686   # Jaeger UI
+            - name: otlp-grpc
+              containerPort: 4317    # OpenTelemetry gRPC
+            - name: otlp-http
+              containerPort: 4318    # OpenTelemetry HTTP
+            - name: collector
+              containerPort: 14268   # HTTP collector
+            - name: zipkin
+              containerPort: 9411    # Zipkin-compatible
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-collector
+  namespace: observability
+spec:
+  selector:
+    app: jaeger
+  ports:
+    - name: otlp-grpc
+      port: 4317
+    - name: otlp-http
+      port: 4318
+    - name: collector
+      port: 14268
+    - name: zipkin
+      port: 9411
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-query
+  namespace: observability
+spec:
+  selector:
+    app: jaeger
+  ports:
+    - name: http
+      port: 16686
+---
+# Istio Telemetry config: enable distributed tracing with Jaeger
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: mesh-tracing
+  namespace: istio-system
+spec:
+  tracing:
+    - providers:
+        - name: jaeger
+      randomSamplingPercentage: 10.0   # 10% sampling rate
+---
+# Grafana for unified dashboarding (Thanos + Loki + Jaeger)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+        team: platform
+        environment: management
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.3.3
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin-secret
+                  key: username
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin-secret
+                  key: password
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 3000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: observability
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Thanos
+        type: prometheus
+        url: http://thanos-query.monitoring.svc.cluster.local:9090
+        isDefault: true
+        access: proxy
+      - name: Loki
+        type: loki
+        url: http://loki.observability.svc.cluster.local:3100
+        access: proxy
+      - name: Jaeger
+        type: jaeger
+        url: http://jaeger-query.observability.svc.cluster.local:16686
+        access: proxy

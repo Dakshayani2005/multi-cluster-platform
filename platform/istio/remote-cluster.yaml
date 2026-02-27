@@ -1,0 +1,63 @@
+---
+# Istio namespace on REMOTE cluster
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+  labels:
+    topology.istio.io/network: network2
+---
+# IstioOperator for REMOTE clusters (staging/production in eu-west-1)
+# These clusters use the primary cluster's istiod as the control plane
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: istio-remote
+  namespace: istio-system
+spec:
+  profile: remote
+  values:
+    global:
+      meshID: mesh1
+      multiCluster:
+        clusterName: ${CLUSTER_NAME}   # replaced by deploy script per cluster
+      network: network2
+      remotePilotAddress: ${EXTERNAL_ISTIOD_ADDR}  # management cluster istiod LB
+    istiodRemote:
+      injectionURL: "https://${EXTERNAL_ISTIOD_ADDR}:15017/inject/:ENV:cluster=${CLUSTER_NAME}:ENV:net=network2"
+  components:
+    ingressGateways:
+      - name: istio-ingressgateway
+        enabled: true
+      - name: istio-eastwestgateway
+        enabled: true
+        label:
+          istio: eastwestgateway
+          app: istio-eastwestgateway
+          topology.istio.io/network: network2
+        k8s:
+          env:
+            - name: ISTIO_META_ROUTER_MODE
+              value: "sni-dnat"
+          service:
+            ports:
+              - name: status-port
+                port: 15021
+              - name: tls
+                port: 15443
+              - name: tls-istiod
+                port: 15012
+              - name: tls-webhook
+                port: 15017
+---
+# Secret to allow primary istiod to reach remote cluster API
+apiVersion: v1
+kind: Secret
+metadata:
+  name: istio-remote-secret-${CLUSTER_NAME}
+  namespace: istio-system
+  labels:
+    istio/multiCluster: "true"
+type: Opaque
+# The kubeconfig data for the remote cluster is populated at runtime
+# by: istioctl create-remote-secret --name=${CLUSTER_NAME} | kubectl apply -f - (management cluster)

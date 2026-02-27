@@ -1,0 +1,61 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: staging-cluster
+  namespace: staging
+  labels:
+    environment: staging
+    region: eu-west-1
+    managed-by: cluster-api
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks: ["192.168.0.0/16"]
+    services:
+      cidrBlocks: ["10.128.0.0/12"]
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+    kind: AWSManagedControlPlane
+    name: staging-cluster-control-plane
+    namespace: staging
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+    kind: AWSManagedCluster
+    name: staging-cluster
+    namespace: staging
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+kind: AWSManagedControlPlane
+metadata:
+  name: staging-cluster-control-plane
+  namespace: staging
+spec:
+  region: eu-west-1
+  version: "v1.29"
+  eksClusterName: staging-cluster
+  iamAuthenticatorConfig:
+    mapRoles:
+      - rolearn: arn:aws:iam::ACCOUNT_ID:role/staging-node-role
+        username: system:node:{{EC2PrivateDNSName}}
+        groups:
+          - system:bootstrappers
+          - system:nodes
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: AWSManagedMachinePool
+metadata:
+  name: staging-worker-pool
+  namespace: staging
+spec:
+  eksNodegroupName: staging-workers
+  instanceType: t3.medium
+  scaling:
+    minSize: 1
+    maxSize: 3
+    desiredSize: 2

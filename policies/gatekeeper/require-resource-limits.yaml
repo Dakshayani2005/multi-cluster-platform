@@ -1,0 +1,71 @@
+---
+# ConstraintTemplate: require CPU and memory limits on all containers
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequiredresourcelimits
+  annotations:
+    description: "Requires all containers to have CPU and memory limits defined."
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequiredResourceLimits
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequiredresourcelimits
+
+        import future.keywords.contains
+        import future.keywords.if
+
+        violation contains msg if {
+          c := input_containers[_]
+          not c.resources.limits.cpu
+          msg := sprintf("Container '%v' is missing a CPU limit.", [c.name])
+        }
+
+        violation contains msg if {
+          c := input_containers[_]
+          not c.resources.limits.memory
+          msg := sprintf("Container '%v' is missing a memory limit.", [c.name])
+        }
+
+        violation contains msg if {
+          c := input_containers[_]
+          not c.resources.requests.cpu
+          msg := sprintf("Container '%v' is missing a CPU request.", [c.name])
+        }
+
+        violation contains msg if {
+          c := input_containers[_]
+          not c.resources.requests.memory
+          msg := sprintf("Container '%v' is missing a memory request.", [c.name])
+        }
+
+        input_containers contains c if {
+          c := input.review.object.spec.containers[_]
+        }
+
+        input_containers contains c if {
+          c := input.review.object.spec.initContainers[_]
+        }
+---
+# Constraint: enforce resource limits in all workload namespaces
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredResourceLimits
+metadata:
+  name: require-resource-limits
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    excludedNamespaces:
+      - kube-system
+      - gatekeeper-system
+      - istio-system
+      - argocd
+      - monitoring
+      - observability

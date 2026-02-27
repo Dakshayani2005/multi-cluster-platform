@@ -1,0 +1,50 @@
+version: "1.0"
+
+metadata:
+  project: multi-cluster-kubernetes-platform
+  difficulty: advanced
+  description: Enterprise-grade multi-cluster Kubernetes IDP with Istio, ArgoCD, Thanos, Loki, Jaeger, OPA Gatekeeper, and Backstage
+
+prerequisites:
+  tools:
+    - terraform >= 1.5.0
+    - kubectl >= 1.27
+    - awscli >= 2.0
+    - argocd >= 2.10
+    - istioctl >= 1.21
+    - helm >= 3.14
+    - clusterctl >= 1.7
+    - docker >= 24.0
+
+steps:
+  - name: Provision Infrastructure
+    description: Provision three EKS clusters across two AWS regions using Terraform (management in us-east-1; staging and production in eu-west-1)
+    commands:
+      - bash scripts/setup.sh
+
+  - name: Deploy Platform Components
+    description: Install ArgoCD, Istio multi-cluster mesh, OPA Gatekeeper policies, RBAC, observability stack, and Backstage via GitOps
+    commands:
+      - bash scripts/deploy.sh
+
+  - name: Deploy Sample Application
+    description: Deploy web-app microservice to staging and production clusters via GitOps
+    commands:
+      - argocd app sync production-web-app
+      - argocd app sync staging-web-app
+      - kubectl rollout status deployment/web-app -n app --context=production-cluster
+
+  - name: Run Health Checks
+    description: Verify all platform components are healthy
+    commands:
+      - bash scripts/test.sh
+
+  - name: Run Verification Suite
+    description: Validate cross-cluster communication, regional failover, and OPA policy enforcement
+    commands:
+      - bash scripts/verify.sh
+
+  - name: Teardown (Optional)
+    description: Destroy all provisioned cloud resources
+    commands:
+      - bash scripts/teardown.sh

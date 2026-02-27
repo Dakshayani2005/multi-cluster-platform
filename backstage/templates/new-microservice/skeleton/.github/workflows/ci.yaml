@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint Kubernetes manifests
+        uses: azure/k8s-lint@v1
+        with:
+          manifests: gitops/
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
+      - name: Update image tag in GitOps
+        if: github.ref == 'refs/heads/main'
+        run: |
+          sed -i "s|image:.*|image: ghcr.io/${{ github.repository }}:${{ github.sha }}|g" gitops/deployment.yaml
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add gitops/deployment.yaml
+          git commit -m "ci: update image to ${{ github.sha }}"
+          git push

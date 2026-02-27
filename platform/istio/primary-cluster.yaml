@@ -1,0 +1,71 @@
+---
+# Istio namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+  labels:
+    topology.istio.io/network: network1
+---
+# IstioOperator for the PRIMARY cluster (management/us-east-1)
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: istio-primary
+  namespace: istio-system
+spec:
+  profile: default
+  meshConfig:
+    defaultConfig:
+      proxyMetadata:
+        ISTIO_META_DNS_CAPTURE: "true"
+    enableTracing: true
+    extensionProviders:
+      - name: jaeger
+        opentelemetry:
+          service: jaeger-collector.observability.svc.cluster.local
+          port: 4317
+  values:
+    global:
+      meshID: mesh1
+      multiCluster:
+        clusterName: management-cluster
+      network: network1
+      defaultPodDisruptionBudget:
+        enabled: true
+    pilot:
+      env:
+        EXTERNAL_ISTIOD: "true"
+  components:
+    ingressGateways:
+      - name: istio-ingressgateway
+        enabled: true
+        k8s:
+          service:
+            type: LoadBalancer
+      - name: istio-eastwestgateway
+        enabled: true
+        label:
+          istio: eastwestgateway
+          app: istio-eastwestgateway
+          topology.istio.io/network: network1
+        k8s:
+          env:
+            - name: ISTIO_META_ROUTER_MODE
+              value: "sni-dnat"
+            - name: ISTIO_META_REQUESTED_NETWORK_VIEW
+              value: "network1,network2"
+          service:
+            ports:
+              - name: status-port
+                port: 15021
+                targetPort: 15021
+              - name: tls
+                port: 15443
+                targetPort: 15443
+              - name: tls-istiod
+                port: 15012
+                targetPort: 15012
+              - name: tls-webhook
+                port: 15017
+                targetPort: 15017

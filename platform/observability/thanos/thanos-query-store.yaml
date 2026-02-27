@@ -1,0 +1,141 @@
+---
+# Thanos Query: provides global query view aggregating all cluster sidecars
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thanos-query
+  namespace: monitoring
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: thanos-query
+  template:
+    metadata:
+      labels:
+        app: thanos-query
+        team: platform
+        environment: management
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+        - name: thanos-query
+          image: quay.io/thanos/thanos:v0.35.0
+          args:
+            - query
+            - --http-address=0.0.0.0:9090
+            - --grpc-address=0.0.0.0:10901
+            - --query.replica-label=replica
+            - --query.replica-label=prometheus_replica
+            # Store gateway for long-term metrics
+            - --store=thanos-store.monitoring.svc.cluster.local:10901
+            # Sidecars from each cluster (DNS service entries for cross-cluster)
+            - --store=prometheus.monitoring.svc.cluster.local:10901
+            - --store=prometheus-staging.monitoring.svc.cluster.local:10901
+            - --store=prometheus-production.monitoring.svc.cluster.local:10901
+            - --web.enable-admin-api
+          ports:
+            - name: http
+              containerPort: 9090
+            - name: grpc
+              containerPort: 10901
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-query
+  namespace: monitoring
+spec:
+  selector:
+    app: thanos-query
+  ports:
+    - name: http
+      port: 9090
+    - name: grpc
+      port: 10901
+---
+# Thanos Store Gateway: serves metrics from S3 long-term storage
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: thanos-store
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: thanos-store
+  serviceName: thanos-store
+  template:
+    metadata:
+      labels:
+        app: thanos-store
+        team: platform
+        environment: management
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+        - name: thanos-store
+          image: quay.io/thanos/thanos:v0.35.0
+          args:
+            - store
+            - --data-dir=/data
+            - --objstore.config-file=/etc/thanos/objstore.yaml
+            - --http-address=0.0.0.0:10902
+            - --grpc-address=0.0.0.0:10901
+          ports:
+            - name: http
+              containerPort: 10902
+            - name: grpc
+              containerPort: 10901
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: thanos-objstore
+              mountPath: /etc/thanos
+      volumes:
+        - name: thanos-objstore
+          secret:
+            secretName: thanos-objstore-secret
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: ebs-gp3
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-store
+  namespace: monitoring
+spec:
+  selector:
+    app: thanos-store
+  clusterIP: None
+  ports:
+    - name: grpc
+      port: 10901
+    - name: http
+      port: 10902

@@ -1,0 +1,85 @@
+app:
+  title: Multi-Cluster IDP
+  baseUrl: http://localhost:3000
+
+organization:
+  name: Platform Engineering
+
+backend:
+  baseUrl: http://localhost:7007
+  listen:
+    port: 7007
+  database:
+    client: pg
+    connection:
+      host: ${POSTGRES_HOST}
+      port: ${POSTGRES_PORT}
+      user: ${POSTGRES_USER}
+      password: ${POSTGRES_PASSWORD}
+  cors:
+    origin: http://localhost:3000
+    methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
+    credentials: true
+
+integrations:
+  github:
+    - host: github.com
+      token: ${GITHUB_TOKEN}
+
+auth:
+  providers:
+    github:
+      development:
+        clientId: ${AUTH_GITHUB_CLIENT_ID}
+        clientSecret: ${AUTH_GITHUB_CLIENT_SECRET}
+
+catalog:
+  import:
+    entityFilename: catalog-info.yaml
+    pullRequestBranchName: backstage-integration
+  rules:
+    - allow: [Component, System, API, Resource, Location, Template]
+  locations:
+    - type: url
+      target: https://github.com/Dakshayani2005/multi-cluster-platform/blob/main/backstage/catalog/all-components.yaml
+    - type: url
+      target: https://github.com/Dakshayani2005/multi-cluster-platform/blob/main/backstage/templates/new-microservice/template.yaml
+
+kubernetes:
+  serviceLocatorMethod:
+    type: multiTenant
+  clusterLocatorMethods:
+    - type: config
+      clusters:
+        - url: ${MANAGEMENT_CLUSTER_URL}
+          name: management-cluster
+          authProvider: serviceAccount
+          skipTLSVerify: false
+          serviceAccountToken: ${MANAGEMENT_SA_TOKEN}
+        - url: ${STAGING_CLUSTER_URL}
+          name: staging-cluster
+          authProvider: serviceAccount
+          skipTLSVerify: false
+          serviceAccountToken: ${STAGING_SA_TOKEN}
+        - url: ${PRODUCTION_CLUSTER_URL}
+          name: production-cluster
+          authProvider: serviceAccount
+          skipTLSVerify: false
+          serviceAccountToken: ${PRODUCTION_SA_TOKEN}
+
+techdocs:
+  builder: local
+  generator:
+    runIn: local
+  publisher:
+    type: local
+
+argocd:
+  baseUrl: ${ARGOCD_URL}
+  token: ${ARGOCD_TOKEN}
+
+scaffolder:
+  defaultAuthor:
+    name: Backstage Scaffolder
+    email: scaffolder@company.com
+  defaultCommitMessage: "feat: scaffold new service via Backstage template"

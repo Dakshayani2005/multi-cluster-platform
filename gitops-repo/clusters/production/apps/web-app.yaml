@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: production-web-app
+  namespace: argocd
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app
+  source:
+    repoURL: https://github.com/Dakshayani2005/multi-cluster-platform.git
+    targetRevision: main
+    path: gitops-repo/apps/web-app
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,21 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-istio
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Dakshayani2005/multi-cluster-platform.git
+    targetRevision: main
+    path: gitops-repo/platform/istio
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
